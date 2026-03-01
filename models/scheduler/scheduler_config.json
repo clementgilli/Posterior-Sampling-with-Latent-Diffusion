@@ -1,6 +1,6 @@
 {
-  "_class_name": "DDIMScheduler",
-  "_diffusers_version": "0.36.0",
+  "_class_name": "DDPMScheduler",
+  "_diffusers_version": "0.34.0",
   "beta_end": 0.0195,
   "beta_schedule": "scaled_linear",
   "beta_start": 0.0015,
@@ -11,11 +11,11 @@
   "prediction_type": "epsilon",
   "rescale_betas_zero_snr": false,
   "sample_max_value": 1.0,
-  "set_alpha_to_one": true,
   "steps_offset": 0,
   "thresholding": false,
   "timestep_spacing": "leading",
   "timestep_values": null,
   "timesteps": 1000,
-  "trained_betas": null
+  "trained_betas": null,
+  "variance_type": "fixed_small"
 }
