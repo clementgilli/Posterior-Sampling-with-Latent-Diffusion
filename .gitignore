@@ -2,6 +2,8 @@
 *.code-workspace
 .DS_Store
 *.safetensors
+ffhq256-1k-validation/
+ffhq256-1k-validation.zip
 
 ### JupyterNotebooks ###
 # gitignore template for Jupyter Notebooks
