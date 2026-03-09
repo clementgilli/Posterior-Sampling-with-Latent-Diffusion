@@ -2,79 +2,71 @@ import torch
 from torch.fft import fft2, ifft2
 import numpy as np
 
-def box_inpainting(x, box_size=128):
-    x = x.clone()
-    _, _, h, w = x.shape
-    x[:, :, h//2-box_size//2:h//2+box_size//2, w//2-box_size//2:w//2+box_size//2] = 0
-    return x
+class LinearOperator:
+    def __init__(self, mode, imgshape, device, box_size=128, prob=(0.2, 0.8)):
+        
+        self.mode = mode
+        self.device = device
+        self.imgshape = imgshape
+        _, _, self.h, self.w = imgshape
+        
+        if "box_inpainting" in mode:
+            if ":" in mode:
+                box_size = int(mode.split(":")[1])
+            self.mask = torch.ones(imgshape, device=device)
+            self.mask[:, :, self.h//2-box_size//2:self.h//2+box_size//2, self.w//2-box_size//2:self.w//2+box_size//2] = 0
+            
+        elif "random_inpainting" in mode:
+            drop_prob = (torch.rand(1, device=device) * (prob[1] - prob[0]) + prob[0]).item()
+            print(f"Random inpainting drop probability: {drop_prob:.3f}")
+            self.mask = torch.bernoulli(torch.full(imgshape, 1 - drop_prob, device=device))
+            
+        elif "super_resolution" in mode:
+            self.scale_factor = int(mode.split(":")[1]) if ":" in mode else 4
+            
+        elif "gaussian_blur" in mode:
+            sigma = float(mode.split(":")[1]) if ":" in mode else 2.0
+            size = 25
+            z = torch.arange(size, device=device) - size//2
+            kt = torch.exp(-0.5 * (z**2 + z.view(-1, 1)**2) / sigma**2)
+            
+            m, n = kt.shape
+            k = torch.zeros((self.h, self.w), device=device)
+            k[0:m, 0:n] = kt / torch.sum(kt)
+            k = torch.roll(k, (-int(m/2), -int(n/2)), (0, 1))
+            self.fk = fft2(k)
+            
+        elif "blur_from_file" in mode:
+            filename = mode.split(":")[1] if ":" in mode else "kernel1.txt"
+            kt = torch.tensor(np.loadtxt('kernels/'+filename), dtype=torch.float32, device=device)
+            
+            m, n = kt.shape
+            k = torch.zeros((self.h, self.w), device=device)
+            k[0:m, 0:n] = kt / torch.sum(kt)
+            k = torch.roll(k, (-int(m/2), -int(n/2)), (0, 1))
+            self.fk = fft2(k)
+            
+        else:
+            raise ValueError(f"Unknown mode: {mode}")
 
-def random_inpainting(x, prob=(0.2, 0.8)):
-    x = x.clone()
-    drop_prob = (torch.rand(1, device=x.device) * (prob[1] - prob[0]) + prob[0]).item()
-    print(drop_prob)
-    mask = torch.bernoulli(torch.full_like(x, 1 - drop_prob))
-    x = x * mask
-    return x
+    def forward(self, x):
+        
+        if "inpainting" in self.mode:
+            return x * self.mask
+        elif "super_resolution" in self.mode:
+            return torch.nn.functional.interpolate(x, scale_factor=1/self.scale_factor, mode='nearest', antialias=False)
+        elif "blur" in self.mode:
+            return ifft2(self.fk * fft2(x)).real
+        return x
 
-def super_resolution(x, scale_factor=4):
-    x = x.clone()
-    x = torch.nn.functional.interpolate(x, scale_factor=1/scale_factor, mode='nearest', antialias=False)
-    return x
-
-def gaussian_blur(x, sigma=2.0):
-    x = x.clone()
-    size = 25
-    z = torch.arange(size) - size//2
-    kt = torch.exp(-0.5 * (z**2 + z.view(-1, 1)**2) / sigma**2)
+    def measure(self, x, nu=0.0):
+        
+        y = self.forward(x)
+        if nu > 0:
+            y = y + nu * torch.randn_like(y)
+        return y
     
-    (m,n) = kt.shape
-    M,N = 256,256
-
-    k = torch.zeros((M,N))
-    k[0:m,0:n] = kt/torch.sum(kt)
-    k = torch.roll(k,(-int(m/2),-int(n/2)),(0,1))
-    fk = fft2(k).to(x.device)
-    return ifft2(fk*fft2(x)).real
-
-def blur_from_file(x, filename):
-    x = x.clone()
-    kt = torch.tensor(np.loadtxt('kernels/'+filename))
-    
-    (m,n) = kt.shape
-    M,N = 256,256
-
-    k = torch.zeros((M,N))
-    k[0:m,0:n] = kt/torch.sum(kt)
-    k = torch.roll(k,(-int(m/2),-int(n/2)),(0,1))
-    fk = fft2(k).to(x.device)
-    
-    (m,n) = kt.shape
-    M,N = 256,256
-
-    k = torch.zeros((M,N))
-    k[0:m,0:n] = kt/torch.sum(kt)
-    k = torch.roll(k,(-int(m/2),-int(n/2)),(0,1))
-    fk = fft2(k).to(x.device)
-    return ifft2(fk*fft2(x)).real
-
-def linear_operator(x, mode, nu):
-    if "box_inpainting" in mode:
-        y = box_inpainting(x)
-        return y + nu * torch.randn_like(y)
-    elif "random_inpainting" in mode:
-        y = random_inpainting(x)
-        return y + nu * torch.randn_like(y)
-    elif "super_resolution" in mode:
-        scale_factor = int(mode.split(":")[1]) if ":" in mode else 4
-        y = super_resolution(x, scale_factor)
-        return y + nu * torch.randn_like(y)
-    elif "gaussian_blur" in mode:
-        sigma = int(mode.split(":")[1]) if ":" in mode else 2
-        y = gaussian_blur(x, sigma)
-        return y + nu * torch.randn_like(y)
-    elif "blur_from_file" in mode:
-        filename = mode.split(":")[1] if ":" in mode else "kernel1.txt"
-        y = blur_from_file(x, filename)
-        return y + nu * torch.randn_like(y)
-    else:
-        raise ValueError("Unknown mode")
+    def visualize_y(self, y):
+        if "super_resolution" in self.mode:
+            return torch.nn.functional.interpolate(y, scale_factor=self.scale_factor, mode='nearest', antialias=False)
+        return y
