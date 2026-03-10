@@ -10,7 +10,9 @@ class LinearOperator:
         self.imgshape = imgshape
         _, _, self.h, self.w = imgshape
         
-        if "box_inpainting" in mode:
+        if "identity" in mode:
+            pass
+        elif "box_inpainting" in mode:
             if ":" in mode:
                 box_size = int(mode.split(":")[1])
             self.mask = torch.ones(imgshape, device=device)
@@ -50,7 +52,8 @@ class LinearOperator:
             raise ValueError(f"Unknown mode: {mode}")
 
     def forward(self, x):
-        
+        if "indentity" in self.mode:
+          return x
         if "inpainting" in self.mode:
             return x * self.mask
         elif "super_resolution" in self.mode:
@@ -69,4 +72,26 @@ class LinearOperator:
     def visualize_y(self, y):
         if "super_resolution" in self.mode:
             return torch.nn.functional.interpolate(y, scale_factor=self.scale_factor, mode='nearest', antialias=False)
+        return y
+    
+    def transpose(self, y):
+        if "identity" in self.mode:
+            return y
+
+        if "inpainting" in self.mode:
+            # L'opérateur est diagonal (matrice identité masquée). A^T = A.
+            return y * self.mask
+            
+        elif "blur" in self.mode:
+            # L'adjoint d'une convolution spatiale est la convolution avec le noyau symétrique.
+            # Dans le domaine fréquentiel, cela revient à multiplier par le conjugué complexe.
+            return ifft2(torch.conj(self.fk) * fft2(y)).real
+            
+        elif "super_resolution" in self.mode:
+            # Solution mathématiquement exacte (VJP) pour la transposée de n'importe quel 
+            # opérateur linéaire PyTorch (y compris l'interpolation bilinéaire).
+            x_dummy = torch.zeros(self.imgshape, device=self.device, requires_grad=True)
+            Ax = self.forward(x_dummy)
+            return torch.autograd.grad(Ax, x_dummy, grad_outputs=y)[0]
+            
         return y
