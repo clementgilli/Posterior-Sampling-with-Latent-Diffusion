@@ -5,6 +5,7 @@ import torchvision
 import matplotlib.pyplot as plt
 from diffusers import UNet2DModel, DDPMScheduler, DDIMScheduler, VQModel
 from tqdm import tqdm
+import datetime
 
 from utils import im2tensor
 from operators import LinearOperator
@@ -32,14 +33,14 @@ def perform_one_step(z, t, prev_t, s_residus, z0_hat, x0_hat, y, operator, vqvae
     loss = loss_per_image.sum()
     grad = torch.autograd.grad(loss, z)[0]
 
-    zeta = args.zeta_scale / torch.sqrt(loss_per_image + 1e-8).view(B, 1, 1, 1)
-
     if args.sampler == "ddpm":
+        zeta = args.zeta_scale / torch.sqrt(loss_per_image + 1e-8).view(B, 1, 1, 1)
         z_prim = (z - (betas[t] / torch.sqrt(1.0 - alphas_bar[t])) * s_residus) / torch.sqrt(alphas[t])
         eps = torch.sqrt(betas[t]) * torch.randn_like(z) if t > 0 else 0
         z_next = z_prim + eps - zeta * grad
 
     elif args.sampler == "ddim":
+        
         alpha_bar_t = alphas_bar[t]
         alpha_bar_prev = alphas_bar[prev_t] if prev_t >= 0 else torch.tensor(1.0, device=z.device)
         
@@ -50,6 +51,9 @@ def perform_one_step(z, t, prev_t, s_residus, z0_hat, x0_hat, y, operator, vqvae
         
         noise = torch.randn_like(z) if prev_t >= 0 else 0.0
         z_prev = torch.sqrt(alpha_bar_prev) * z0_hat + dir_xt + sigma_t * noise
+        
+        scaling = 1000.0 / args.steps
+        zeta = scaling * torch.sqrt(alpha_bar_t)
         
         z_next = z_prev - zeta * grad
         
@@ -95,7 +99,7 @@ def main():
     scheduler.set_timesteps(args.steps)
 
     x0_list = []
-    for idx in [1, 59, 462, 478]:##range(args.batch_size):
+    for idx in range(args.batch_size): #[1, 59, 462, 478]
         img_path = f'ffhq256-1k-validation/{str(idx).zfill(5)}.png' 
         x0_list.append(im2tensor(plt.imread(img_path), device=device))
         
@@ -112,9 +116,13 @@ def main():
 
     y = operator.measure(x_true, nu=args.nu)
     
+    datetime_str = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    save_path = f"results/{args.mode}_{datetime_str}"
+    os.makedirs(save_path, exist_ok=True)
+    
     for i in range(B):
-        torchvision.utils.save_image(x_true[i] * 0.5 + 0.5, f"results/orig_{i}.png")
-        torchvision.utils.save_image(y[i] * 0.5 + 0.5, f"results/degraded_{i}.png")
+        torchvision.utils.save_image(x_true[i] * 0.5 + 0.5, f"{save_path}/orig_{i}.png")
+        torchvision.utils.save_image(y[i] * 0.5 + 0.5, f"{save_path}/degraded_{i}.png")
 
     alphas = scheduler.alphas.to(device) if args.sampler == "ddpm" else None
     betas = scheduler.betas.to(device) if args.sampler == "ddpm" else None
@@ -144,18 +152,18 @@ def main():
             final_img = vqvae.decode(z.detach())[0]
 
     for i in range(B):
-        torchvision.utils.save_image(final_img[i] * 0.5 + 0.5, f"results/recon_{i}.png")
+        torchvision.utils.save_image(final_img[i] * 0.5 + 0.5, f"{save_path}/recon_{i}.png")
 
     results = evaluator.evaluate_all(x_true, final_img, data_range=2.0)
     
-    metrics_path = f"results/metrics_{args.mode}_{args.sampler}.txt"
+    metrics_path = f"{save_path}/metrics_{args.mode}_{args.sampler}.txt"
     with open(metrics_path, "w") as f:
         f.write(f"Configuration : Mode={args.mode}, Sampler={args.sampler}, Steps={args.steps}, Batch={B}\n")
         f.write("-" * 50 + "\n")
-        f.write(f"PSNR  : {results['PSNR']:.4f} dB\n")
-        f.write(f"SSIM  : {results['SSIM']:.4f}\n")
-        f.write(f"LPIPS : {results['LPIPS']:.4f}\n")
-        
+        f.write(f"PSNR  : {results['PSNR']:.4f} ± {results['PSNR_STD']:.4f} dB\n")
+        f.write(f"SSIM  : {results['SSIM']:.4f} ± {results['SSIM_STD']:.4f}\n")
+        f.write(f"LPIPS : {results['LPIPS']:.4f} ± {results['LPIPS_STD']:.4f}\n")
+
     print(f"Done.")
 
 if __name__ == "__main__":
