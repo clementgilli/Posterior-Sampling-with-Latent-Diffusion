@@ -81,8 +81,8 @@ def main():
 
     os.makedirs("results", exist_ok=True)
 
-    vqvae = VQModel.from_pretrained("./models/vqvae", torch_dtype=torch.float16).to(device)
-    unet = UNet2DModel.from_pretrained("./models/unet", torch_dtype=torch.float16).to(device)
+    vqvae = VQModel.from_pretrained("./models/vqvae", torch_dtype=torch.float32).to(device)
+    unet = UNet2DModel.from_pretrained("./models/unet", torch_dtype=torch.float32).to(device)
     
     vqvae.eval()
     unet.eval()
@@ -94,7 +94,7 @@ def main():
     scheduler.set_timesteps(args.steps)
 
     x0_list = []
-    for idx in range(args.batch_size):
+    for idx in [1, 59, 462, 478]:##range(args.batch_size):
         img_path = f'ffhq256-1k-validation/{str(idx).zfill(5)}.png' 
         x0_list.append(im2tensor(plt.imread(img_path), device=device))
         
@@ -142,7 +142,6 @@ def main():
     for i in range(B):
         torchvision.utils.save_image(final_img[i] * 0.5 + 0.5, f"results/recon_{i}.png")
 
-    # Calcul et sauvegarde des métriques
     results = evaluator.evaluate_all(x_true, final_img, data_range=2.0)
     
     metrics_path = f"results/metrics_{args.mode}_{args.sampler}.txt"
