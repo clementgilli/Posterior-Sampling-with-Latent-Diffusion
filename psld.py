@@ -72,6 +72,7 @@ def main():
     parser.add_argument("--gluing", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--batch_size", type=int, default=8, help="Number of images to process at once")
     parser.add_argument("--ddim_eta", type=float, default=0.0)
+    parser.add_argument("--precise_mode", type=str, default=None)
     
     args = parser.parse_args()
 
@@ -103,6 +104,9 @@ def main():
     imgshape = x_true.shape
     imgshape_latent = (B, unet.config.in_channels, unet.sample_size, unet.sample_size)
 
+    if args.precise_mode is not None:
+        args.mode = args.mode + ":" + args.precise_mode
+    
     operator = LinearOperator(args.mode, imgshape, device)
     evaluator = ImageMetrics(device=device)
 

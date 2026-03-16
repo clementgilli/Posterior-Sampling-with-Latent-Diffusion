@@ -1,0 +1,5 @@
+Configuration : Mode=random_inpainting (p=0.346), Sampler=ddpm, Steps=1000, Batch=4
+--------------------------------------------------
+PSNR  : 27.4569 dB
+SSIM  : 0.7446
+LPIPS : 0.1288
