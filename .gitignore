@@ -4,7 +4,7 @@
 *.safetensors
 ffhq256-1k-validation/
 ffhq256-1k-validation.zip
-results/
+*.sh
 
 ### JupyterNotebooks ###
 # gitignore template for Jupyter Notebooks
