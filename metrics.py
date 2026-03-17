@@ -33,7 +33,7 @@ class ImageMetrics:
         mse = torch.mean((img_true - img_gen) ** 2, axis=(1, 2, 3))
         rmse = torch.sqrt(mse)
         psnr = 20 * torch.log10(data_range / rmse)
-        return psnr.mean().item(), psnr.std().item()
+        return [item.item() for item in psnr]
 
     def compute_ssim(self, img_true, img_gen, data_range=2.0):
         img_true = self._format_tensor(img_true).detach().cpu().numpy()
@@ -51,7 +51,7 @@ class ImageMetrics:
             )]
         ssim_total = torch.tensor(ssim_total)
             
-        return ssim_total.mean().item(), ssim_total.std().item()
+        return [item.item() for item in ssim_total]
 
     def compute_lpips(self, img_true, img_gen):
         img_true = self._format_tensor(img_true).to(self.device)
@@ -60,17 +60,14 @@ class ImageMetrics:
         with torch.no_grad():
             score = self.lpips_model(img_true, img_gen)
             
-        return score.mean().item(), score.std().item()
+        return [item.item() for item in score]
 
     def evaluate_all(self, img_true, img_gen, data_range=2.0):
-        mean_psnr, std_psnr = self.compute_psnr(img_true, img_gen, data_range)
-        mean_ssim, std_ssim = self.compute_ssim(img_true, img_gen, data_range)
-        mean_lpips, std_lpips = self.compute_lpips(img_true, img_gen)
+        list_psnr = self.compute_psnr(img_true, img_gen, data_range)
+        list_ssim = self.compute_ssim(img_true, img_gen, data_range)
+        list_lpips = self.compute_lpips(img_true, img_gen)
         return {
-            "PSNR": mean_psnr,
-            "SSIM": mean_ssim,
-            "LPIPS": mean_lpips,
-            "PSNR_STD": std_psnr,
-            "SSIM_STD": std_ssim,
-            "LPIPS_STD": std_lpips
+            "PSNR": list_psnr,
+            "SSIM": list_ssim,
+            "LPIPS": list_lpips,
         }
