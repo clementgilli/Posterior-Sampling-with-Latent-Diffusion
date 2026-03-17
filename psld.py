@@ -6,6 +6,7 @@ import matplotlib.pyplot as plt
 from diffusers import UNet2DModel, DDPMScheduler, DDIMScheduler, VQModel
 from tqdm import tqdm
 import datetime
+import numpy as np
 
 from utils import im2tensor
 from operators import LinearOperator
@@ -73,10 +74,11 @@ def main():
     parser.add_argument("--gamma", type=float, default=0.1)
     parser.add_argument("--zeta_scale", type=float, default=1.0)
     parser.add_argument("--nu", type=float, default=0.01)
-    parser.add_argument("--gluing", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--gluing", type=bool, default=True)
     parser.add_argument("--batch_size", type=int, default=8, help="Number of images to process at once")
     parser.add_argument("--ddim_eta", type=float, default=0.0)
     parser.add_argument("--precise_mode", type=str, default=None)
+    parser.add_argument("--num_batchs", type=int, default=1, help="Number of batches to process")
     
     args = parser.parse_args()
 
@@ -98,67 +100,84 @@ def main():
         scheduler = DDIMScheduler.from_pretrained("./models/scheduler")
     scheduler.set_timesteps(args.steps)
 
-    x0_list = []
-    for idx in range(args.batch_size): #[1, 59, 462, 478]
-        img_path = f'ffhq256-1k-validation/{str(idx).zfill(5)}.png' 
-        x0_list.append(im2tensor(plt.imread(img_path), device=device))
-        
-    x_true = torch.cat(x0_list, dim=0) # (B, 3, 256, 256)
-    B = x_true.shape[0]
-    imgshape = x_true.shape
-    imgshape_latent = (B, unet.config.in_channels, unet.sample_size, unet.sample_size)
+    evaluator = ImageMetrics(device=device)
 
     if args.precise_mode is not None:
         args.mode = args.mode + ":" + args.precise_mode
-    
-    operator = LinearOperator(args.mode, imgshape, device)
-    evaluator = ImageMetrics(device=device)
 
-    y = operator.measure(x_true, nu=args.nu)
-    
     datetime_str = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     save_path = f"results/{args.mode}_{datetime_str}"
     os.makedirs(save_path, exist_ok=True)
-    
-    for i in range(B):
-        torchvision.utils.save_image(x_true[i] * 0.5 + 0.5, f"{save_path}/orig_{i}.png")
-        torchvision.utils.save_image(y[i] * 0.5 + 0.5, f"{save_path}/degraded_{i}.png")
 
-    alphas = scheduler.alphas.to(device) if args.sampler == "ddpm" else None
-    betas = scheduler.betas.to(device) if args.sampler == "ddpm" else None
-    alphas_bar = scheduler.alphas_cumprod.to(device)
+    all_psnr = []
+    all_ssim = []
+    all_lpips = []
 
-    z = torch.randn(imgshape_latent, device=device)
-
-    for i, t in enumerate(tqdm(scheduler.timesteps)):
+    for batch_idx in range(args.num_batchs):
+        print(f"\n--- Processing Batch {batch_idx + 1}/{args.num_batchs} ---")
         
-        # for DDIM
-        prev_t = scheduler.timesteps[i + 1] if i < len(scheduler.timesteps) - 1 else torch.tensor(-1, device=device)
-        t_tensor = torch.full((B,), t.item(), device=device, dtype=torch.long)
+        x0_list = []
+        for idx in range(batch_idx * args.batch_size, (batch_idx + 1) * args.batch_size): 
+            img_path = f'ffhq256-1k-validation/{str(idx).zfill(5)}.png' 
+            x0_list.append(im2tensor(plt.imread(img_path), device=device))
+            
+        x_true = torch.cat(x0_list, dim=0) # (B, 3, 256, 256)
+        B = x_true.shape[0]
+        imgshape = x_true.shape
+        imgshape_latent = (B, unet.config.in_channels, unet.sample_size, unet.sample_size)
+
+        operator = LinearOperator(args.mode, imgshape, device)
+        y = operator.measure(x_true, nu=args.nu)
         
-        z = z.detach().requires_grad_(True)
+        for i in range(B):
+            global_i = i + batch_idx * args.batch_size
+            torchvision.utils.save_image(x_true[i] * 0.5 + 0.5, f"{save_path}/orig_{global_i}.png")
+            torchvision.utils.save_image(y[i] * 0.5 + 0.5, f"{save_path}/degraded_{global_i}.png")
 
-        with torch.amp.autocast("cuda"):
-        
-            s_residus = unet(z, t_tensor)["sample"]
-            z0_hat =  (z - torch.sqrt(1.0 - alphas_bar[t]) * s_residus) / torch.sqrt(alphas_bar[t])
-            x0_hat = vqvae.decode(z0_hat)[0]
+        alphas = scheduler.alphas.to(device) if args.sampler == "ddpm" else None
+        betas = scheduler.betas.to(device) if args.sampler == "ddpm" else None
+        alphas_bar = scheduler.alphas_cumprod.to(device)
 
-        z = perform_one_step(z, t, prev_t, s_residus, z0_hat, x0_hat, y, operator, vqvae, args, alphas, betas, alphas_bar)
+        z = torch.randn(imgshape_latent, device=device)
+
+        for i, t in enumerate(tqdm(scheduler.timesteps)):
+            
+            # for DDIM
+            prev_t = scheduler.timesteps[i + 1] if i < len(scheduler.timesteps) - 1 else torch.tensor(-1, device=device)
+            t_tensor = torch.full((B,), t.item(), device=device, dtype=torch.long)
+            
+            z = z.detach().requires_grad_(True)
+
+            with torch.amp.autocast("cuda"):
+                s_residus = unet(z, t_tensor)["sample"]
+                z0_hat =  (z - torch.sqrt(1.0 - alphas_bar[t]) * s_residus) / torch.sqrt(alphas_bar[t])
+                x0_hat = vqvae.decode(z0_hat)[0]
+
+            z = perform_one_step(z, t, prev_t, s_residus, z0_hat, x0_hat, y, operator, vqvae, args, alphas, betas, alphas_bar)
 
 
-    with torch.no_grad():
-        with torch.amp.autocast("cuda"):
-            final_img = vqvae.decode(z.detach())[0]
+        with torch.no_grad():
+            with torch.amp.autocast("cuda"):
+                final_img = vqvae.decode(z.detach())[0]
 
-    for i in range(B):
-        torchvision.utils.save_image(final_img[i] * 0.5 + 0.5, f"{save_path}/recon_{i}.png")
+        for i in range(B):
+            global_i = i + batch_idx * args.batch_size
+            torchvision.utils.save_image(final_img[i] * 0.5 + 0.5, f"{save_path}/recon_{global_i}.png")
+            
+            res = evaluator.evaluate_all(x_true[i:i+1], final_img[i:i+1], data_range=2.0)
+            all_psnr.append(res['PSNR'])
+            all_ssim.append(res['SSIM'])
+            all_lpips.append(res['LPIPS'])
 
-    results = evaluator.evaluate_all(x_true, final_img, data_range=2.0)
+    results = {
+        'PSNR': np.mean(all_psnr), 'PSNR_STD': np.std(all_psnr),
+        'SSIM': np.mean(all_ssim), 'SSIM_STD': np.std(all_ssim),
+        'LPIPS': np.mean(all_lpips), 'LPIPS_STD': np.std(all_lpips)
+    }
     
     metrics_path = f"{save_path}/metrics_{args.mode}_{args.sampler}.txt"
     with open(metrics_path, "w") as f:
-        f.write(f"Configuration : Mode={args.mode}, Sampler={args.sampler}, Steps={args.steps}, Batch={B}\n")
+        f.write(f"Configuration : Mode={args.mode}, Sampler={args.sampler}, Steps={args.steps}, Batch={args.batch_size}, NumBatchs={args.num_batchs}\n")
         f.write("-" * 50 + "\n")
         f.write(f"PSNR  : {results['PSNR']:.4f} ± {results['PSNR_STD']:.4f} dB\n")
         f.write(f"SSIM  : {results['SSIM']:.4f} ± {results['SSIM_STD']:.4f}\n")
