@@ -165,9 +165,9 @@ def main():
             torchvision.utils.save_image(final_img[i] * 0.5 + 0.5, f"{save_path}/recon_{global_i}.png")
             
             res = evaluator.evaluate_all(x_true[i:i+1], final_img[i:i+1], data_range=2.0)
-            all_psnr.append(res['PSNR'])
-            all_ssim.append(res['SSIM'])
-            all_lpips.append(res['LPIPS'])
+            all_psnr += res['PSNR']
+            all_ssim += res['SSIM']
+            all_lpips += res['LPIPS']
 
     results = {
         'PSNR': np.mean(all_psnr), 'PSNR_STD': np.std(all_psnr),
