@@ -1,0 +1,13 @@
+eta,PSNR_mean,PSNR_std,SSIM_mean,SSIM_std,LPIPS_mean,LPIPS_std
+0.200000,19.7439,1.3486,0.3082,0.0644,0.5681,0.0516
+0.303982,21.4361,1.7238,0.4052,0.0701,0.4863,0.0617
+0.462026,21.6535,2.9889,0.4648,0.1302,0.4205,0.0913
+0.702238,22.8411,2.6482,0.5545,0.1134,0.3404,0.1126
+1.067340,nan,nan,nan,nan,nan,nan
+1.622262,nan,nan,nan,nan,nan,nan
+2.465693,nan,nan,nan,nan,nan,nan
+3.747635,nan,nan,nan,nan,nan,nan
+5.696072,nan,nan,nan,nan,nan,nan
+8.657523,nan,nan,nan,nan,nan,nan
+13.158664,nan,nan,nan,nan,nan,nan
+20.000000,nan,nan,nan,nan,nan,nan

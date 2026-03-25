@@ -110,7 +110,7 @@ def main():
         args.mode = args.mode + ":" + args.precise_mode
 
     datetime_str = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    save_path = f"results/{args.mode}_{args.sweep_param}_sweep_{datetime_str}"
+    save_path = f"results/{args.mode}/{args.sweep_param}_sweep_eta_{args.eta}_gamma_{args.gamma}_step_{args.steps}_ddimeta_{args.ddim_eta}"
     os.makedirs(save_path, exist_ok=True)
 
     # Generate Sweep Array
@@ -136,7 +136,7 @@ def main():
         all_psnr, all_ssim, all_lpips = [], [], []
 
         # INNER LOOP: Batch Processing
-        for batch_idx in range(args.num_batchs):
+        for batch_idx in tqdm(range(args.num_batchs), total=args.num_batchs):
             
             x0_list = []
             for idx in range(batch_idx * args.batch_size, (batch_idx + 1) * args.batch_size): 
@@ -152,19 +152,20 @@ def main():
             y = operator.measure(x_true, nu=args.nu)
             
             # Save Orig/Degraded only on the first sweep to save disk space
-            if p_val == param_values[0]:
-                for i in range(B):
-                    global_i = i + batch_idx * args.batch_size
-                    torchvision.utils.save_image(x_true[i] * 0.5 + 0.5, f"{save_path}/orig_{global_i}.png")
-                    torchvision.utils.save_image(y[i] * 0.5 + 0.5, f"{save_path}/degraded_{global_i}.png")
+            #if p_val == param_values[0]:
+                #for i in range(B):
+                    #global_i = i + batch_idx * args.batch_size
+                    #torchvision.utils.save_image(x_true[i] * 0.5 + 0.5, f"{save_path}/orig_{global_i}.png")
+                    #torchvision.utils.save_image(y[i] * 0.5 + 0.5, f"{save_path}/degraded_{global_i}.png")
 
             alphas = scheduler.alphas.to(device) if args.sampler == "ddpm" else None
             betas = scheduler.betas.to(device) if args.sampler == "ddpm" else None
             alphas_bar = scheduler.alphas_cumprod.to(device)
 
+            torch.manual_seed(6 + batch_idx)
             z = torch.randn(imgshape_latent, device=device)
 
-            for i, t in enumerate(tqdm(scheduler.timesteps, desc=f"Batch {batch_idx+1}/{args.num_batchs}")):
+            for i, t in enumerate(scheduler.timesteps):
                 prev_t = scheduler.timesteps[i + 1] if i < len(scheduler.timesteps) - 1 else torch.tensor(-1, device=device)
                 t_tensor = torch.full((B,), t.item(), device=device, dtype=torch.long)
                 
@@ -188,14 +189,14 @@ def main():
                     final_img = vqvae.decode(z.detach())[0]
 
             for i in range(B):
-                global_i = i + batch_idx * args.batch_size
-                torchvision.utils.save_image(final_img[i] * 0.5 + 0.5, f"{save_path}/recon_param_{p_val:.4f}_{global_i}.png")
+                #global_i = i + batch_idx * args.batch_size
+                #torchvision.utils.save_image(final_img[i] * 0.5 + 0.5, f"{save_path}/recon_param_{p_val:.4f}_{global_i}.png")
                 
                 res = evaluator.evaluate_all(x_true[i:i+1], final_img[i:i+1], data_range=2.0)
                 # Ensure we pull floats so we don't leak VGG memory
-                all_psnr.append(res['PSNR'] if isinstance(res['PSNR'], float) else res['PSNR'].item())
-                all_ssim.append(res['SSIM'] if isinstance(res['SSIM'], float) else res['SSIM'].item())
-                all_lpips.append(res['LPIPS'] if isinstance(res['LPIPS'], float) else res['LPIPS'].item())
+                all_psnr += res['PSNR']
+                all_ssim += res['SSIM']               
+                all_lpips += res['LPIPS']
 
             # Clear memory per batch
             del z, s_residus, x0_hat, z0_hat, final_img, x_true, y

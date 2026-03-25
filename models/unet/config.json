@@ -1,6 +1,6 @@
 {
   "_class_name": "UNet2DModel",
-  "_diffusers_version": "0.34.0",
+  "_diffusers_version": "0.37.0",
   "_name_or_path": "CompVis/ldm-celebahq-256",
   "act_fn": "silu",
   "add_attention": true,

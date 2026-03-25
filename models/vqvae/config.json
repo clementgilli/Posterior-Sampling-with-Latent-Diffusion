@@ -1,6 +1,6 @@
 {
   "_class_name": "VQModel",
-  "_diffusers_version": "0.34.0",
+  "_diffusers_version": "0.37.0",
   "_name_or_path": "CompVis/ldm-celebahq-256",
   "act_fn": "silu",
   "block_out_channels": [
