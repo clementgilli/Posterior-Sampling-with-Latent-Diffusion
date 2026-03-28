@@ -169,12 +169,12 @@ def main():
                 prev_t = scheduler.timesteps[i + 1] if i < len(scheduler.timesteps) - 1 else torch.tensor(-1, device=device)
                 t_tensor = torch.full((B,), t.item(), device=device, dtype=torch.long)
                 
-                # STRICT STOP-GRADIENT ON U-NET
+                # STOP-GRADIENT ON U-NET
                 with torch.no_grad():
                     with torch.amp.autocast("cuda"):
                         s_residus = unet(z.detach(), t_tensor)["sample"].detach()
 
-                # ENABLE GRADIENTS FOR ANALYTICAL MATH
+            
                 z = z.detach().requires_grad_(True)
 
                 with torch.amp.autocast("cuda"):
